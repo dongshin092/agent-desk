@@ -61,6 +61,19 @@ const sessions = new Map(); // session_id → { id, project, cwd, lastActivity }
 const agents = new Map();   // 내부 id → agent
 const bySubagentId = new Map(); // Claude Code agent_id → 내부 id
 const byToolUseId = new Map();  // Task/Agent 툴 호출 id → 내부 id
+const touchedFiles = new Map(); // session_id → 이 세션에서 읽거나 만든·고친 파일 경로 (첨부 찾기용)
+
+function rememberFile(sid, cwd, input) {
+  const f = input && (input.file_path || input.notebook_path);
+  if (!f) return;
+  const abs = path.resolve(cwd || '.', f);
+  const list = touchedFiles.get(sid) || [];
+  const i = list.indexOf(abs);
+  if (i >= 0) list.splice(i, 1);
+  list.push(abs);
+  if (list.length > 300) list.shift();
+  touchedFiles.set(sid, list);
+}
 const log = [];
 let logSeq = 0;
 let agentSeq = 0;
@@ -247,7 +260,7 @@ function saveReport({ agent, subject, kind, body }) {
     Math.random().toString(36).slice(2, 6).padEnd(4, '0');
   const session = sessions.get(agent.sessionId);
   const cwd = session ? session.cwd : '';
-  const attachments = findAttachments(text, cwd);
+  const attachments = findAttachments(text, cwd, { touched: touchedFiles.get(agent.sessionId) || [] });
   const meta = {
     from: oneLine(agent.name), dept: oneLine(agent.dept), project: oneLine(agent.project),
     subject: oneLine(subject) || '업무 보고', kind, session: oneLine(agent.sessionId), date: d.toISOString(),
@@ -307,6 +320,7 @@ function handleEvent(ev) {
         if (ev.tool_use_id) byToolUseId.set(ev.tool_use_id, member.id);
         addLog(member, `출근했습니다${input.description ? ` (${clip(input.description, 30)})` : ''}`);
       }
+      if (/^(Write|Edit|MultiEdit|NotebookEdit|Read)$/.test(ev.tool_name || '')) rememberFile(sid, session.cwd, input);
       const actor = actorFor(ev, sid);
       const info = describeTool(ev.tool_name, input);
       update(actor, { status: 'working', activity: info.activity, detail: info.detail });
@@ -404,7 +418,7 @@ setInterval(() => {
       agents.delete(id);
       for (const [k, v] of bySubagentId) if (v === id) bySubagentId.delete(k);
       for (const [k, v] of byToolUseId) if (v === id) byToolUseId.delete(k);
-      if (a.role === 'lead') sessions.delete(a.sessionId);
+      if (a.role === 'lead') { sessions.delete(a.sessionId); touchedFiles.delete(a.sessionId); }
       changed = true;
     } else if (a.status === 'working' && a.activity === 'think' && now - a.lastActivity > 90_000) {
       update(a, { status: 'idle', activity: 'idle', detail: '잠시 휴식' });
@@ -417,6 +431,7 @@ setInterval(() => {
   for (const [sid, s] of sessions) {
     if (now - s.lastActivity > 30 * 60_000) {
       sessions.delete(sid);
+      touchedFiles.delete(sid);
       for (const [id, a] of agents) if (a.sessionId === sid) agents.delete(id);
       changed = true;
     }
@@ -526,6 +541,21 @@ const server = http.createServer((req, res) => {
       fs.readFile(reportFile(id), 'utf8', (err, text) => {
         if (err) { res.writeHead(404).end(); return; }
         const r = parseReport(id, text);
+        // 열 때 첨부를 다시 찾아봅니다 (예전 버전에서 못 찾았던 첨부나, 나중에 생긴 파일 반영)
+        if (r && meta.cwd) {
+          const fresh = findAttachments(r.body, meta.cwd, { touched: touchedFiles.get(meta.session) || [] });
+          const merged = [...new Set([...meta.attachments, ...fresh])];
+          if (merged.length !== meta.attachments.length) {
+            meta.attachments = merged;
+            const line = `attachments: ${JSON.stringify(merged)}`;
+            const updated = /^attachments: .*$/m.test(text)
+              ? text.replace(/^attachments: .*$/m, line)
+              : text.replace(/\n---\n/, `\n${line}\n---\n`);
+            fs.writeFile(reportFile(id), updated, 'utf8', () => {});
+            reportsVersion++;
+            scheduleBroadcast();
+          }
+        }
         res.writeHead(200, { 'Content-Type': MIME['.json'] })
           .end(JSON.stringify({ ...meta, read: readIds.has(id), body: r ? r.body.trim() : '' }));
       });

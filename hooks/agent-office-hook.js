@@ -67,7 +67,9 @@ async function send() {
       const slim = {};
       for (const key of KEEP) {
         const v = ev.tool_input[key];
-        if (typeof v === 'string') slim[key] = v.length > 160 ? v.slice(0, 160) : v;
+        if (typeof v !== 'string') continue;
+        const max = /path$/.test(key) ? 600 : 160;   // 파일 경로는 잘리면 첨부를 못 찾으므로 길게 허용
+        slim[key] = v.length > max ? v.slice(0, max) : v;
       }
       ev.tool_input = slim;
     }
