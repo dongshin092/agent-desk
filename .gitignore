@@ -3,3 +3,6 @@ reports/
 *.log
 .DS_Store
 Thumbs.db
+
+# MCP 설정 (GitHub 토큰 포함 — 커밋 금지)
+.mcp.json
