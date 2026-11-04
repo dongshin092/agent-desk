@@ -1,0 +1,13 @@
+{
+  "name": "agent-office",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claude Code 에이전트를 부서별 픽셀 사무실로 보여주는 Windows용 대시보드",
+  "scripts": {
+    "start": "node server.js",
+    "install-hooks": "node scripts/install-hooks.js",
+    "uninstall-hooks": "node scripts/uninstall-hooks.js",
+    "simulate": "node scripts/simulate.js"
+  },
+  "engines": { "node": ">=18" }
+}

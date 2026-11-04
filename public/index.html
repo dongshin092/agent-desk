@@ -1,0 +1,1131 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Office</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏢</text></svg>">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/galmuri/dist/galmuri.css">
+<style>
+  :root {
+    --bg: #e4e8e2;
+    --panel: #f6f7f3;
+    --ink: #1f2430;
+    --muted: #697180;
+    --line: #d0d6cd;
+    --chip: #e9ece6;
+    --ok: #2f9a5a;
+    --warn: #c98a12;
+    --alert: #d4433b;
+    --pixel: "Galmuri11", "Galmuri9", "Malgun Gothic", monospace;
+    --body: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #191c21;
+      --panel: #21252c;
+      --ink: #e6e9ee;
+      --muted: #9aa2ae;
+      --line: #323843;
+      --chip: #2b3039;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    display: flex; flex-direction: column;
+    background: var(--bg); color: var(--ink);
+    font: 14px/1.5 var(--body);
+  }
+
+  header {
+    display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+    padding: 12px 20px; border-bottom: 2px solid var(--line);
+  }
+  h1 { margin: 0; font: 20px/1 var(--pixel); letter-spacing: .02em; }
+  .stats { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .stat {
+    font: 12px/1 var(--pixel); padding: 7px 10px;
+    background: var(--panel); border: 2px solid var(--line); border-radius: 4px;
+  }
+  .stat b { font-weight: normal; font-size: 14px; margin-left: 4px; }
+  .stat.alert { border-color: var(--alert); color: var(--alert); }
+  .conn { display: inline-flex; align-items: center; gap: 6px; font: 12px/1 var(--pixel); color: var(--muted); }
+  .conn::before { content: ""; width: 8px; height: 8px; background: var(--alert); }
+  .conn.on::before { background: var(--ok); }
+
+  .office-view { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 340px; }
+
+  .office { position: relative; overflow: auto; padding: 20px; }
+  canvas {
+    display: block; image-rendering: pixelated;
+    border: 3px solid #3a3346; border-radius: 2px;
+    box-shadow: 6px 6px 0 rgba(30, 25, 40, .18);
+  }
+  .empty {
+    position: absolute; inset: 20px auto auto 20px; display: none;
+    pointer-events: none; place-content: center; text-align: center;
+  }
+  .empty.show { display: grid; }
+  .empty p {
+    margin: 0; padding: 14px 18px; background: rgba(31, 36, 48, .86); color: #fff;
+    font: 13px/1.7 var(--pixel); border-radius: 4px;
+  }
+  .empty code { background: rgba(255,255,255,.16); padding: 1px 6px; border-radius: 3px; font-family: var(--pixel); }
+
+  .tip {
+    position: absolute; z-index: 5; display: none; max-width: 260px; pointer-events: none;
+    padding: 10px 12px; background: var(--panel); color: var(--ink);
+    border: 2px solid var(--ink); border-radius: 4px; box-shadow: 4px 4px 0 rgba(0,0,0,.18);
+  }
+  .tip strong { font: 13px/1.3 var(--pixel); display: block; margin-bottom: 4px; }
+  .tip span { display: block; color: var(--muted); font-size: 12px; }
+
+  aside {
+    min-height: 0; display: flex; flex-direction: column;
+    background: var(--panel); border-left: 2px solid var(--line);
+  }
+  aside section { min-height: 0; overflow: auto; padding: 16px 18px; }
+  #roster { flex: 1 1 58%; }
+  #logbox { flex: 1 1 42%; border-top: 2px solid var(--line); }
+  h2 { margin: 0 0 10px; font: 14px/1 var(--pixel); }
+
+  .dept { margin-bottom: 14px; }
+  .dept-head { display: flex; align-items: center; gap: 8px; font: 13px/1 var(--pixel); margin-bottom: 6px; }
+  .swatch { width: 10px; height: 10px; flex: none; }
+  .dept-head small { color: var(--muted); font: inherit; margin-left: auto; }
+  .person { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 6px 0 6px 18px; border-top: 1px dashed var(--line); }
+  .person .who { font-weight: 600; overflow-wrap: anywhere; }
+  .person .what { grid-column: 1 / -1; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  .vacant { padding-left: 18px; color: var(--muted); font-size: 12px; }
+  .chip { font: 11px/1 var(--pixel); padding: 4px 6px; background: var(--chip); border-radius: 3px; align-self: start; white-space: nowrap; }
+  .chip.working { color: var(--ok); }
+  .chip.waiting { color: var(--muted); }
+  .chip.alert { background: var(--alert); color: #fff; }
+  .chip.done { color: var(--warn); }
+
+  ol.log { list-style: none; margin: 0; padding: 0; }
+  ol.log li { display: grid; grid-template-columns: 58px 1fr; gap: 8px; padding: 5px 0; border-top: 1px dashed var(--line); font-size: 12px; }
+  ol.log time { color: var(--muted); font: 11px/1.6 var(--pixel); }
+  ol.log b { font-weight: 600; }
+
+
+  nav { display: flex; gap: 4px; }
+  nav a {
+    position: relative; font: 13px/1 var(--pixel); color: var(--muted); text-decoration: none;
+    padding: 8px 12px; border: 2px solid transparent; border-radius: 4px;
+  }
+  nav a:hover { color: var(--ink); }
+  nav a[aria-current="page"] { color: var(--ink); background: var(--panel); border-color: var(--line); }
+  nav a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid #4a86d9; outline-offset: 2px; }
+  .badge {
+    display: inline-block; min-width: 18px; margin-left: 4px; padding: 3px 5px;
+    background: var(--alert); color: #fff; font: 11px/1 var(--pixel); text-align: center; border-radius: 3px;
+  }
+  .badge[hidden] { display: none; }
+
+  .inbox { flex: 1; min-height: 0; display: grid; grid-template-columns: 380px minmax(0, 1fr); }
+  .inbox[hidden], main[hidden] { display: none; }
+  .mail-list { min-height: 0; display: flex; flex-direction: column; background: var(--panel); border-right: 2px solid var(--line); }
+  .mail-tools { padding: 14px 16px 10px; border-bottom: 2px solid var(--line); display: grid; gap: 10px; }
+  .mail-tools input {
+    width: 100%; padding: 8px 10px; font: inherit; color: var(--ink);
+    background: var(--bg); border: 2px solid var(--line); border-radius: 4px;
+  }
+  .filters { display: flex; gap: 6px; }
+  .filters button, .mail-actions button {
+    font: 12px/1 var(--pixel); color: var(--ink); cursor: pointer;
+    padding: 7px 10px; background: var(--chip); border: 2px solid var(--line); border-radius: 4px;
+  }
+  .filters button[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+  .mail-actions button.danger:hover { border-color: var(--alert); color: var(--alert); }
+  #mail-items { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; }
+  .mail-item {
+    display: grid; gap: 3px; width: 100%; text-align: left; cursor: pointer;
+    padding: 12px 16px 12px 22px; background: none; border: 0; border-bottom: 1px solid var(--line);
+    color: var(--ink); font: inherit; position: relative;
+  }
+  .mail-item:hover { background: var(--chip); }
+  .mail-item.active { background: var(--chip); box-shadow: inset 4px 0 0 var(--ink); }
+  .mail-item.unread::before { content: ""; position: absolute; left: 8px; top: 19px; width: 6px; height: 6px; background: #4a86d9; }
+  .mi-top { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .mi-top b { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mail-item.unread .mi-top b, .mail-item.unread .mi-subject { font-weight: 700; }
+  .mi-dept { font-size: 11px; white-space: nowrap; }
+  .mi-top time { margin-left: auto; color: var(--muted); font: 11px/1 var(--pixel); white-space: nowrap; }
+  .mi-subject { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mi-preview { color: var(--muted); font-size: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .mail-none { padding: 24px 16px; color: var(--muted); }
+
+  .mail-read { min-height: 0; overflow: auto; padding: 28px 36px 48px; }
+  .mail-empty { height: 100%; display: grid; place-content: center; color: var(--muted); font: 13px/1.8 var(--pixel); text-align: center; }
+  .mail-subject { margin: 0 0 16px; font-size: 22px; line-height: 1.35; font-weight: 700; max-width: 760px; }
+  .mail-meta { display: flex; align-items: center; gap: 12px; padding-bottom: 16px; border-bottom: 2px solid var(--line); max-width: 760px; flex-wrap: wrap; }
+  .avatar { width: 40px; height: 40px; flex: none; display: grid; place-content: center; color: #fff; font: 16px/1 var(--pixel); border-radius: 4px; }
+  .mail-meta .who b { font-weight: 700; }
+  .mail-meta .who small { display: block; color: var(--muted); font-size: 12px; }
+  .mail-actions { margin-left: auto; display: flex; gap: 6px; }
+
+  .md { max-width: 760px; padding-top: 8px; line-height: 1.75; overflow-wrap: anywhere; }
+  .md h3, .md h4, .md h5 { margin: 1.4em 0 .5em; line-height: 1.4; }
+  .md h3 { font-size: 17px; } .md h4 { font-size: 15px; } .md h5 { font-size: 14px; }
+  .md p { margin: .7em 0; }
+  .md ul, .md ol { padding-left: 1.4em; margin: .6em 0; }
+  .md li { margin: .25em 0; }
+  .md code { font-family: Consolas, "D2Coding", monospace; font-size: .92em; background: var(--chip); padding: 1px 5px; border-radius: 3px; }
+  .md pre { background: var(--chip); padding: 12px 14px; border-radius: 4px; overflow: auto; }
+  .md pre code { background: none; padding: 0; }
+  .md blockquote { margin: .8em 0; padding: 4px 14px; border-left: 4px solid var(--line); color: var(--muted); }
+  .md hr { border: 0; border-top: 2px dashed var(--line); margin: 1.4em 0; }
+  .md .tbl { overflow-x: auto; margin: .8em 0; }
+  .md table { border-collapse: collapse; font-size: 13px; }
+  .md th, .md td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  .md th { background: var(--chip); }
+  .md .omitted {
+    margin: .7em 0; padding: 8px 12px; font: 12px/1.4 var(--pixel); color: var(--muted);
+    border: 2px dashed var(--line); border-radius: 4px; background: repeating-linear-gradient(-45deg, transparent 0 6px, var(--chip) 6px 12px);
+  }
+
+  .attach { max-width: 760px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 14px 0; border-bottom: 2px solid var(--line); }
+  .attach > span { font: 12px/1 var(--pixel); color: var(--muted); margin-right: 4px; }
+  .file {
+    display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%;
+    padding: 7px 10px; font: inherit; font-size: 13px; color: var(--ink); text-decoration: none; cursor: pointer;
+    background: var(--chip); border: 2px solid var(--line); border-radius: 4px;
+  }
+  .file:hover { border-color: var(--ink); }
+  .file b { font-weight: 600; overflow-wrap: anywhere; }
+  .file small { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+  .file.missing { opacity: .55; text-decoration: line-through; cursor: not-allowed; }
+  .md a { color: #3f7fd6; }
+  .md a.file-link::before { content: "📎 "; }
+  .mi-clip { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 20;
+    padding: 10px 14px; background: var(--ink); color: var(--panel); border-radius: 4px; font-size: 13px;
+  }
+
+  @media (max-width: 900px) {
+    .inbox { grid-template-columns: 1fr; grid-template-rows: 45vh auto; }
+    .mail-list { border-right: 0; border-bottom: 2px solid var(--line); }
+    .mail-read { padding: 20px; }
+  }
+
+  @media (max-width: 900px) {
+    .office-view { grid-template-columns: 1fr; grid-template-rows: auto auto; }
+    aside { border-left: 0; border-top: 2px solid var(--line); }
+    aside section { max-height: 50vh; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Agent Office</h1>
+  <nav aria-label="화면 전환">
+    <a href="#office" id="tab-office">사무실</a>
+    <a href="#inbox" id="tab-inbox">보고서함<span class="badge" id="badge" hidden>0</span></a>
+  </nav>
+  <span class="conn" id="conn">연결 중</span>
+  <div class="stats">
+    <span class="stat">세션<b id="s-sessions">0</b></span>
+    <span class="stat">근무 중<b id="s-working">0</b></span>
+    <span class="stat" id="s-alert-box">결재 대기<b id="s-alert">0</b></span>
+  </div>
+</header>
+
+<main class="office-view" id="view-office">
+  <div class="office" id="office">
+    <canvas id="canvas" role="img" aria-label="에이전트 사무실. 부서별 현황은 오른쪽 목록에서 볼 수 있습니다."></canvas>
+    <div class="empty" id="empty">
+      <p>아직 출근한 직원이 없습니다.<br>Claude Code에 일을 시키면 팀장이 출근해요.<br>미리 보려면 <code>npm run simulate</code></p>
+    </div>
+    <div class="tip" id="tip"></div>
+  </div>
+  <aside>
+    <section id="roster" aria-label="부서 현황"><h2>부서 현황</h2><div id="roster-body"></div></section>
+    <section id="logbox" aria-label="업무 일지"><h2>업무 일지</h2><ol class="log" id="log"></ol></section>
+  </aside>
+</main>
+
+<main class="inbox" id="view-inbox" hidden>
+  <section class="mail-list" aria-label="보고서 목록">
+    <div class="mail-tools">
+      <input type="search" id="mail-search" placeholder="보낸 사람, 제목, 내용 검색" autocomplete="off">
+      <div class="filters" role="group" aria-label="보고서 필터">
+        <button type="button" data-filter="all" aria-pressed="true">전체</button>
+        <button type="button" data-filter="unread" aria-pressed="false">안 읽음</button>
+        <button type="button" data-filter="lead" aria-pressed="false">팀장 보고</button>
+        <button type="button" data-filter="member" aria-pressed="false">부서 보고</button>
+      </div>
+    </div>
+    <ul id="mail-items"></ul>
+  </section>
+  <article class="mail-read" id="mail-read" aria-live="polite">
+    <div class="mail-empty">보고서를 고르면 여기에 열립니다.<br>서브에이전트가 업무를 마치거나 팀장이 긴 답변을 끝내면 도착해요.</div>
+  </article>
+</main>
+
+<script>
+(() => {
+  // ───────── 사무실 치수 (논리 픽셀) ─────────
+  const T = 16, ZW = 12, ZH = 8, CH = 3, LOBBY = 2;
+  const SPEED = 90; // 걷는 속도 (px/초)
+  const CANVAS_FONT = '"Malgun Gothic", "Apple SD Gothic Neo", sans-serif';
+  const EMOJI_FONT = '"Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
+
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const officeEl = document.getElementById('office');
+  const tipEl = document.getElementById('tip');
+
+  let snap = { config: { leadRoom: '팀장실', defaultDept: 'TF팀', departments: [] }, agents: [], sessions: [], log: [] };
+  let layout = null, layoutKey = '';
+  const chars = new Map();
+
+  const STATUS = {
+    working: '근무 중', idle: '휴식', waiting: '대기', alert: '결재 필요', done: '퇴근',
+  };
+  const ICON = {
+    think: '💭', read: '📖', write: '💻', run: '⚙️', search: '🔍', web: '🌐',
+    delegate: '📋', plan: '📝', tool: '🔧',
+  };
+
+  // ───────── 색상 유틸 ─────────
+  function hex(c) { const n = parseInt(c.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+  function mix(a, b, t) {
+    const x = hex(a), y = hex(b);
+    return '#' + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, '0')).join('');
+  }
+  function deptColor(name) {
+    const c = snap.config;
+    if (name === c.leadRoom) return '#c4573f';
+    const d = c.departments.find((d) => d.name === name);
+    return (d && /^#[0-9a-f]{6}$/i.test(d.color)) ? d.color : '#8a909a';
+  }
+  function hash(s) { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; }
+
+  const SKINS = ['#f3d2b3', '#e8b98f', '#c98d63', '#a8704a', '#f6dcc7'];
+  const HAIRS = ['#2b2230', '#5a3a28', '#8b5a2b', '#c9a15a', '#3d3d4a', '#7a2e2e', '#d8d2c8'];
+  function lookFor(id) {
+    const h = hash(id);
+    return { seed: h % 1000, skin: SKINS[h % SKINS.length], hair: HAIRS[(h >> 3) % HAIRS.length], style: (h >> 7) % 3 };
+  }
+
+  // ───────── 레이아웃 ─────────
+  function zoneNames(cfg) {
+    const names = [cfg.leadRoom, ...cfg.departments.map((d) => d.name)];
+    if (!names.includes(cfg.defaultDept)) names.push(cfg.defaultDept);
+    return names;
+  }
+
+  function buildLayout(cfg) {
+    const names = zoneNames(cfg);
+    const cols = Math.ceil(names.length / 2);
+    const W = (LOBBY + cols * ZW) * T, H = (ZH * 2 + CH) * T;
+    const corridorY = ZH * T, corridorMid = corridorY + (CH * T) / 2;
+    const zones = names.map((name, i) => {
+      const top = i < cols, c = top ? i : i - cols;
+      const x0 = (LOBBY + c * ZW) * T, y0 = top ? 0 : (ZH + CH) * T;
+      const desks = [];
+      for (const ry of [3, 5.6]) for (const cx of [2.5, 5.25, 8]) desks.push({ x: Math.round(x0 + cx * T), y: Math.round(y0 + ry * T) });
+      return {
+        name, top, x0, y0, w: ZW * T, h: ZH * T,
+        doorX: Math.round(x0 + 10.5 * T), aisleY: Math.round(y0 + 4.3 * T),
+        desks, slots: [], isLead: name === cfg.leadRoom,
+      };
+    });
+    const emptyBottom = names.length % 2 === 1
+      ? { x0: (LOBBY + (cols - 1) * ZW) * T, y0: (ZH + CH) * T, w: ZW * T, h: ZH * T } : null;
+    return { W, H, corridorY, corridorMid, zones, byName: new Map(zones.map((z) => [z.name, z])), lounge: emptyBottom };
+  }
+
+  function zoneOf(ch) { return layout.byName.get(ch.zone); }
+
+  function seatFor(z, k) {
+    if (k < z.desks.length) { const d = z.desks[k]; return { x: d.x + 4, y: d.y + 2, desk: d }; }
+    const j = k - z.desks.length;
+    return { x: z.x0 + T + (j % 9) * T, y: z.y0 + 7 * T, desk: null };
+  }
+
+  function assignSeat(ch) {
+    const z = layout.byName.get(ch.data.dept) || layout.byName.get(snap.config.defaultDept);
+    let k = z.slots.indexOf(null);
+    if (k < 0) { k = z.slots.length; z.slots.push(null); }
+    z.slots[k] = ch.id;
+    ch.zone = z.name;
+    ch.seat = seatFor(z, k);
+  }
+
+  function freeSeat(ch) {
+    const z = zoneOf(ch);
+    if (z) { const k = z.slots.indexOf(ch.id); if (k >= 0) z.slots[k] = null; }
+    ch.seat = null;
+  }
+
+  const inCorridor = (ch) => ch.y > layout.corridorY - 2 && ch.y < layout.corridorY + CH * T + 2;
+  function exitPath(z, ch) {
+    if (!z || inCorridor(ch)) return [];
+    return [[ch.x, z.aisleY], [z.doorX, z.aisleY], [z.doorX, layout.corridorMid]];
+  }
+  function enterPath(z, seat) {
+    return [[z.doorX, layout.corridorMid], [z.doorX, z.aisleY], [seat.x, z.aisleY], [seat.x, seat.y]];
+  }
+
+  function relayout() {
+    layout = buildLayout(snap.config);
+    for (const ch of [...chars.values()]) {
+      if (ch.leaving) { chars.delete(ch.id); continue; }
+      assignSeat(ch);
+      ch.x = ch.seat.x; ch.y = ch.seat.y; ch.path = []; ch.dir = 'd';
+    }
+    resize();
+  }
+
+  // ───────── 서버 스냅샷 반영 ─────────
+  let firstSnapshot = true;
+  function applySnapshot(s) {
+    snap = s;
+    const arriveNow = firstSnapshot; // 페이지를 처음 열었을 때는 이미 출근한 직원을 자리에 바로 앉힘
+    firstSnapshot = false;
+    const key = JSON.stringify(zoneNames(s.config)) + JSON.stringify(s.config.departments.map((d) => d.color));
+    if (key !== layoutKey) { layoutKey = key; relayout(); }
+
+    const ids = new Set(s.agents.map((a) => a.id));
+    for (const a of s.agents) {
+      let ch = chars.get(a.id);
+      if (!ch) {
+        ch = { id: a.id, data: a, look: lookFor(a.id), x: 6, y: layout.corridorMid, path: [], dir: 'r', leaving: false };
+        chars.set(a.id, ch);
+        assignSeat(ch);
+        if (arriveNow) { ch.x = ch.seat.x; ch.y = ch.seat.y; ch.dir = 'd'; }
+        else ch.path = enterPath(zoneOf(ch), ch.seat);
+        continue;
+      }
+      const prevDept = ch.data.dept;
+      ch.data = a;
+      if (ch.leaving) {
+        ch.leaving = false;
+        assignSeat(ch);
+        ch.path = [...exitPath(null, ch), ...enterPath(zoneOf(ch), ch.seat)];
+      } else if (a.dept !== prevDept) {
+        const old = zoneOf(ch);
+        freeSeat(ch);
+        assignSeat(ch);
+        ch.path = [...exitPath(old, ch), ...enterPath(zoneOf(ch), ch.seat)];
+      }
+    }
+    for (const ch of chars.values()) {
+      if (!ids.has(ch.id) && !ch.leaving) {
+        const z = zoneOf(ch);
+        ch.leaving = true;
+        ch.path = [...exitPath(z, ch), [6, layout.corridorMid]];
+        freeSeat(ch);
+      }
+    }
+    renderPanels();
+    onReportsSummary(s.reports);
+  }
+
+  // ───────── 이동 ─────────
+  function step(ch, dt) {
+    if (!ch.path.length) return;
+    const [tx, ty] = ch.path[0];
+    const dx = tx - ch.x, dy = ty - ch.y, d = Math.hypot(dx, dy), sp = SPEED * dt;
+    if (d <= sp) {
+      ch.x = tx; ch.y = ty; ch.path.shift();
+      if (!ch.path.length) ch.dir = 'd';
+    } else {
+      ch.x += (dx / d) * sp; ch.y += (dy / d) * sp;
+      ch.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'r' : 'l') : (dy > 0 ? 'd' : 'u');
+    }
+  }
+  const walking = (ch) => ch.path.length > 0;
+  const seated = (ch) => !ch.leaving && ch.seat && ch.seat.desk && !walking(ch);
+
+  // ───────── 그리기: 배경 ─────────
+  function rect(c, x, y, w, h) { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); }
+
+  function drawBackground() {
+    const L = layout;
+    rect('#cbc4b6', 0, 0, L.W, L.H);
+    // 복도 (체크무늬 타일)
+    for (let x = 0; x < L.W; x += T) {
+      for (let y = L.corridorY; y < L.corridorY + CH * T; y += T) {
+        rect(((x + y) / T) % 2 === 0 ? '#d9d3c5' : '#cfc8b9', x, y, T, T);
+      }
+    }
+    // 로비
+    rect('#b9ae9c', 0, 0, LOBBY * T, L.corridorY);
+    rect('#b9ae9c', 0, L.corridorY + CH * T, LOBBY * T, L.H - L.corridorY - CH * T);
+    drawWaterCooler(10, L.corridorY - 30);
+    drawPlant(10, L.corridorY + CH * T + 8);
+    // 출입문
+    rect('#6e4a33', 0, L.corridorMid - 13, 5, 26);
+    rect('#f0c35a', 3, L.corridorMid, 1, 2);
+
+    for (const z of L.zones) drawZone(z);
+    if (L.lounge) drawLounge(L.lounge);
+  }
+
+  function drawZone(z) {
+    const color = deptColor(z.name);
+    const floor = mix(color, '#f2ede3', 0.84);
+    rect(floor, z.x0, z.y0, z.w, z.h);
+    for (let y = z.y0 + 14; y < z.y0 + z.h; y += 8) rect(mix(floor, '#000000', 0.04), z.x0, y, z.w, 1);
+
+    const wall = '#3d3448', face = mix(color, '#ffffff', 0.62);
+    const gapL = z.doorX - 11, gapR = z.doorX + 11;
+    // 위쪽 벽면
+    if (z.top) {
+      rect(face, z.x0, z.y0, z.w, 12);
+    } else {
+      rect(face, z.x0, z.y0, gapL - z.x0, 12);
+      rect(face, gapR, z.y0, z.x0 + z.w - gapR, 12);
+      rect(mix(floor, '#000000', 0.12), gapL, z.y0, gapR - gapL, 12);
+    }
+    rect(mix(face, '#000000', 0.18), z.x0, z.y0 + 11, z.w, 1);
+    // 테두리 벽
+    rect(wall, z.x0, z.y0, 2, z.h);
+    rect(wall, z.x0 + z.w - 2, z.y0, 2, z.h);
+    if (z.top) {
+      rect(wall, z.x0, z.y0, z.w, 2);
+      rect(wall, z.x0, z.y0 + z.h - 2, gapL - z.x0, 2);
+      rect(wall, gapR, z.y0 + z.h - 2, z.x0 + z.w - gapR, 2);
+    } else {
+      rect(wall, z.x0, z.y0, gapL - z.x0, 2);
+      rect(wall, gapR, z.y0, z.x0 + z.w - gapR, 2);
+      rect(wall, z.x0, z.y0 + z.h - 2, z.w, 2);
+    }
+    // 문 앞 매트
+    rect(mix(color, '#000000', 0.25), z.doorX - 8, z.top ? z.y0 + z.h - 6 : z.y0 + 13, 16, 4);
+
+    // 명패
+    const count = snap.agents.filter((a) => a.dept === z.name).length;
+    const label = count ? `${z.name} ${count}` : z.name;
+    ctx.font = `700 7px ${CANVAS_FONT}`;
+    const tw = Math.ceil(ctx.measureText(label).width);
+    rect(color, z.x0 + 6, z.y0 + 2, tw + 8, 9);
+    rect(mix(color, '#000000', 0.3), z.x0 + 6, z.y0 + 10, tw + 8, 1);
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, z.x0 + 10, z.y0 + 6.5);
+
+    // 소품
+    drawPlant(z.x0 + z.w - 12, z.y0 + 18);
+    if (z.isLead) {
+      rect('#f7f7f2', z.x0 + 92, z.y0 + 2, 52, 8);
+      rect('#9aa3ad', z.x0 + 92, z.y0 + 9, 52, 1);
+      rect('#d4433b', z.x0 + 96, z.y0 + 4, 14, 1);
+      rect('#4a86d9', z.x0 + 96, z.y0 + 6, 24, 1);
+      rect('#4fae6a', z.x0 + 114, z.y0 + 4, 18, 1);
+    } else {
+      // 창문
+      rect('#9ec9e6', z.x0 + 100, z.y0 + 3, 24, 6);
+      rect('#ffffff', z.x0 + 111, z.y0 + 3, 1, 6);
+    }
+  }
+
+  function drawLounge(r) {
+    rect('#d8cbb3', r.x0, r.y0, r.w, r.h);
+    rect('#3d3448', r.x0, r.y0 + r.h - 2, r.w, 2);
+    rect('#3d3448', r.x0 + r.w - 2, r.y0, 2, r.h);
+    ctx.font = `700 7px ${CANVAS_FONT}`;
+    ctx.fillStyle = '#7a6a52'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText('휴게실', r.x0 + 10, r.y0 + 18);
+    // 소파
+    rect('#7d5ba6', r.x0 + 40, r.y0 + 64, 60, 10);
+    rect('#6a4b91', r.x0 + 40, r.y0 + 74, 60, 8);
+    rect('#5a3d7d', r.x0 + 36, r.y0 + 62, 6, 20);
+    rect('#5a3d7d', r.x0 + 98, r.y0 + 62, 6, 20);
+    // 탁자, 커피머신
+    rect('#a77a52', r.x0 + 56, r.y0 + 92, 28, 8);
+    rect('#3a3346', r.x0 + 150, r.y0 + 40, 12, 18);
+    rect('#d4433b', r.x0 + 153, r.y0 + 44, 3, 2);
+    drawPlant(r.x0 + 170, r.y0 + 100);
+  }
+
+  function drawPlant(x, y) {
+    rect('#3f8f4f', x - 4, y - 8, 8, 6);
+    rect('#56aa62', x - 2, y - 11, 4, 4);
+    rect('#2f7a3e', x - 5, y - 5, 2, 2);
+    rect('#a0623a', x - 3, y - 2, 6, 5);
+  }
+
+  function drawWaterCooler(x, y) {
+    rect('#bfe0f5', x - 3, y, 6, 7);
+    rect('#e9eef2', x - 4, y + 7, 8, 12);
+    rect('#4a86d9', x - 1, y + 10, 2, 1);
+  }
+
+  // ───────── 그리기: 책상 · 모니터 ─────────
+  const SCREEN_BG = {
+    write: '#1d2a3c', run: '#0c140f', read: '#ece7da', search: '#2b2713', web: '#13283f',
+    think: '#1d2233', delegate: '#2a1f35', plan: '#2b2a18', tool: '#18292a', idle: '#16141c',
+  };
+  const SCREEN_LINES = {
+    write: ['#7fb2ff', '#ffcf6b', '#9be39b'], run: ['#58e07a'], read: ['#9a9384', '#b9b2a2'],
+    search: ['#ffd84a', '#c9b98a'], web: ['#7fc1ff', '#c9e2ff'], delegate: ['#e0a0ff', '#ffffff'],
+    plan: ['#f0e08a'], tool: ['#7fe0d0'], think: ['#56607a'],
+  };
+
+  function drawDesk(d, z, occ, t) {
+    const x = d.x, y = d.y;
+    rect(z.isLead ? '#6b4430' : '#b98a5e', x - 14, y, 28, 6);
+    rect(z.isLead ? '#4e3022' : '#8e6542', x - 14, y + 6, 28, 5);
+    rect('#4a3a2e', x - 13, y + 11, 2, 3);
+    rect('#4a3a2e', x + 11, y + 11, 2, 3);
+    // 모니터
+    rect('#2b2733', x - 14, y - 8, 11, 8);
+    rect('#2b2733', x - 10, y, 3, 1);
+    const on = occ && seated(occ);
+    const act = on ? occ.data.activity : 'idle';
+    rect(on ? (SCREEN_BG[act] || SCREEN_BG.think) : '#121016', x - 13, y - 7, 9, 6);
+    const lines = on && SCREEN_LINES[act];
+    if (lines) {
+      const f = Math.floor(t / (act === 'read' ? 900 : 220));
+      for (let i = 0; i < 3; i++) {
+        const len = act === 'think' ? 3 : 2 + ((f + i * 3 + occ.look.seed) % 6);
+        rect(lines[(i + f) % lines.length], x - 12, y - 6 + i * 2, len, 1);
+      }
+    }
+    // 키보드
+    rect('#d9d4cc', x, y + 1, 9, 2);
+    // 휴식 중이면 커피잔
+    if (on && occ.data.status === 'idle') {
+      rect('#ffffff', x + 10, y - 2, 3, 3);
+      rect('#6b3e22', x + 10, y - 2, 3, 1);
+    }
+  }
+
+  // ───────── 그리기: 캐릭터 ─────────
+  function drawChar(ch, t) {
+    const x = Math.round(ch.x), y = Math.round(ch.y);
+    const a = ch.look, d = ch.data, w = walking(ch), sit = seated(ch);
+    const busy = !w && (d.activity === 'write' || d.activity === 'run') && d.status === 'working';
+    const frame = Math.floor(t / (busy ? 120 : 160)) % 2;
+    const isLead = d.role === 'lead';
+    const shirt = isLead ? '#2f3b55' : deptColor(d.dept);
+    const shirtDark = mix(shirt, '#000000', 0.25);
+
+    if (!sit) rect('rgba(0,0,0,0.18)', x - 4, y - 1, 8, 2);
+    // 다리
+    const legA = w && frame ? 1 : 0, legB = w && !frame ? 1 : 0;
+    rect('#3a3346', x - 3, y - 4, 2, 4 - legA);
+    rect('#3a3346', x + 1, y - 4, 2, 4 - legB);
+    // 몸통
+    const bodyTop = y - 10;
+    rect(shirt, x - 4, bodyTop, 8, 6);
+    if (isLead) { rect('#f2efe9', x - 2, bodyTop, 4, 1); rect('#c8453d', x - 1, bodyTop + 1, 2, 4); }
+    // 팔
+    let lo = 0, ro = 0;
+    if (busy) { lo = frame ? -1 : 0; ro = frame ? 0 : -1; }
+    if (w) { lo = frame ? 1 : 0; ro = frame ? 0 : 1; }
+    rect(shirtDark, x - 6, bodyTop + 1 + lo, 2, 5);
+    rect(shirtDark, x + 4, bodyTop + 1 + ro, 2, 5);
+    rect(a.skin, x - 6, bodyTop + 6 + lo, 2, 1);
+    rect(a.skin, x + 4, bodyTop + 6 + ro, 2, 1);
+    // 머리
+    const bob = !w && d.activity === 'read' && frame ? 1 : 0;
+    const hy = bodyTop - 7 + bob;
+    rect(a.skin, x - 4, hy, 8, 7);
+    rect(a.hair, x - 4, hy, 8, 2);
+    rect(a.hair, x - 4, hy + 2, 1, 2);
+    rect(a.hair, x + 3, hy + 2, 1, 2);
+    if (a.style === 1) { rect(a.hair, x - 5, hy + 1, 1, 5); rect(a.hair, x + 4, hy + 1, 1, 5); }
+    if (a.style === 2) rect(a.hair, x - 3, hy - 1, 6, 1);
+    if (ch.dir === 'u') {
+      rect(a.hair, x - 4, hy, 8, 6);
+    } else {
+      const blink = Math.floor((t + a.seed * 997) / 2400) % 13 === 0;
+      if (!blink) {
+        const ex = ch.dir === 'l' ? -1 : ch.dir === 'r' ? 1 : 0;
+        rect('#2a2433', x - 2 + ex, hy + 4, 1, 1);
+        rect('#2a2433', x + 1 + ex, hy + 4, 1, 1);
+      }
+    }
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+
+  let mailFlash = null; // { sessionId, until }
+  function bubbleFor(ch) {
+    const d = ch.data;
+    if (walking(ch)) return null;
+    if (d.role === 'lead' && mailFlash && mailFlash.sessionId === d.sessionId && performance.now() < mailFlash.until) return { emoji: '📨' };
+    if (d.status === 'alert') return { text: '결재!', bg: '#d4433b', fg: '#ffffff' };
+    if (d.status === 'done') return { emoji: '✅' };
+    if (d.status === 'waiting') return { emoji: d.detail === '보고 완료' ? '✅' : '💬' };
+    if (d.status === 'idle') return { emoji: '☕' };
+    return { emoji: ICON[d.activity] || '💭' };
+  }
+
+  function drawOverlay(ch, t) {
+    const x = Math.round(ch.x), y = Math.round(ch.y);
+    const top = y - 18;
+    // 이름표
+    const name = ch.data.name.length > 14 ? ch.data.name.slice(0, 13) + '…' : ch.data.name;
+    ctx.font = `600 6px ${CANVAS_FONT}`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const tw = ctx.measureText(name).width;
+    ctx.fillStyle = 'rgba(31, 27, 42, 0.78)';
+    roundRect(x - tw / 2 - 3, top - 7, tw + 6, 8, 2); ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(name, x, top - 2.8);
+
+    // 말풍선
+    const b = bubbleFor(ch);
+    if (!b) return;
+    if (b.text && Math.floor(t / 450) % 2) return; // 결재 요청은 깜빡임
+    const by = top - 19;
+    ctx.font = b.text ? `700 7px ${CANVAS_FONT}` : `8px ${EMOJI_FONT}`;
+    const content = b.text || b.emoji;
+    const bw = Math.max(13, ctx.measureText(content).width + 6);
+    ctx.fillStyle = b.bg || '#ffffff';
+    roundRect(x - bw / 2, by, bw, 11, 3); ctx.fill();
+    ctx.strokeStyle = b.bg ? b.bg : '#3a3346'; ctx.lineWidth = 0.8; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - 2, by + 11); ctx.lineTo(x, by + 13.5); ctx.lineTo(x + 2, by + 11); ctx.closePath();
+    ctx.fillStyle = b.bg || '#ffffff'; ctx.fill();
+    ctx.fillStyle = b.fg || '#000000';
+    ctx.fillText(content, x, by + 6);
+  }
+
+  function draw(t) {
+    ctx.clearRect(0, 0, layout.W, layout.H);
+    drawBackground();
+    const items = [];
+    for (const z of layout.zones) {
+      z.desks.forEach((d, k) => {
+        const occ = z.slots[k] ? chars.get(z.slots[k]) : null;
+        items.push({ y: d.y, draw: () => drawDesk(d, z, occ, t) });
+      });
+    }
+    for (const ch of chars.values()) {
+      items.push({ y: seated(ch) ? ch.seat.desk.y - 0.1 : ch.y, draw: () => drawChar(ch, t) });
+    }
+    items.sort((a, b) => a.y - b.y).forEach((i) => i.draw());
+    for (const ch of chars.values()) drawOverlay(ch, t);
+  }
+
+  // ───────── 크기 맞추기 ─────────
+  function resize() {
+    if (!layout) return;
+    const dpr = window.devicePixelRatio || 1;
+    const avail = Math.max(320, officeEl.clientWidth - 46);
+    const fit = (avail * dpr) / layout.W;
+    const devScale = fit >= 2 ? Math.min(Math.floor(fit), 5 * dpr) : fit; // 2배 이상이면 정수 배율로 선명하게
+    const scale = devScale / dpr;
+    canvas.style.width = `${Math.round(layout.W * scale)}px`;
+    canvas.style.height = `${Math.round(layout.H * scale)}px`;
+    canvas.width = Math.round(layout.W * devScale);
+    canvas.height = Math.round(layout.H * devScale);
+    ctx.setTransform(devScale, 0, 0, devScale, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    const empty = document.getElementById('empty');
+    empty.style.width = canvas.style.width;
+    empty.style.height = canvas.style.height;
+  }
+  new ResizeObserver(resize).observe(officeEl);
+
+  // ───────── 오른쪽 패널 ─────────
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const timeOf = (ts) => new Date(ts).toTimeString().slice(0, 8);
+
+  function statusLabel(a) {
+    if (a.status === 'waiting' && a.detail === '보고 완료') return '보고 완료';
+    if (a.status === 'done' && a.role === 'member') return '업무 완료';
+    return STATUS[a.status] || a.status;
+  }
+
+  let lastLogId = -1;
+  function renderPanels() {
+    const a = snap.agents;
+    document.getElementById('s-sessions').textContent = snap.sessions.length;
+    document.getElementById('s-working').textContent = a.filter((x) => x.status === 'working').length;
+    const alerts = a.filter((x) => x.status === 'alert').length;
+    document.getElementById('s-alert').textContent = alerts;
+    document.getElementById('s-alert-box').classList.toggle('alert', alerts > 0);
+    document.title = alerts ? `(결재 ${alerts}) Agent Office` : 'Agent Office';
+    document.getElementById('empty').classList.toggle('show', a.length === 0);
+
+    const html = zoneNames(snap.config).map((name) => {
+      const people = a.filter((x) => x.dept === name);
+      const rows = people.length
+        ? people.map((p) => `
+          <div class="person">
+            <span class="who">${esc(p.name)}${p.role === 'member' && p.project ? ` <small style="color:var(--muted);font-weight:400">${esc(p.project)}</small>` : ''}</span>
+            <span class="chip ${esc(p.status)}">${esc(statusLabel(p))}</span>
+            <span class="what">${esc(p.detail)}</span>
+          </div>`).join('')
+        : '<div class="vacant">자리 비어 있음</div>';
+      return `<div class="dept">
+        <div class="dept-head"><span class="swatch" style="background:${deptColor(name)}"></span>${esc(name)}<small>${people.length}명</small></div>
+        ${rows}</div>`;
+    }).join('');
+    document.getElementById('roster-body').innerHTML = html;
+
+    const newest = snap.log.length ? snap.log[snap.log.length - 1].id : -1;
+    if (newest !== lastLogId) {
+      lastLogId = newest;
+      document.getElementById('log').innerHTML = snap.log.slice().reverse().map((l) =>
+        `<li><time>${timeOf(l.ts)}</time><span><b>${esc(l.who)}</b> ${esc(l.text)}</span></li>`).join('')
+        || '<li><time></time><span style="color:var(--muted)">기록이 없습니다.</span></li>';
+    }
+  }
+
+  // ───────── 마우스 오버 ─────────
+  let hovered = null;
+  canvas.addEventListener('mousemove', (e) => {
+    if (!layout) return;
+    const r = canvas.getBoundingClientRect();
+    const mx = ((e.clientX - r.left) / r.width) * layout.W;
+    const my = ((e.clientY - r.top) / r.height) * layout.H;
+    let best = null, bd = 11;
+    for (const ch of chars.values()) {
+      const dd = Math.hypot(ch.x - mx, ch.y - 9 - my);
+      if (dd < bd) { bd = dd; best = ch; }
+    }
+    hovered = best;
+    canvas.style.cursor = best && latestReportOf(best) ? 'pointer' : 'default';
+    if (!best) { tipEl.style.display = 'none'; return; }
+    const d = best.data;
+    const rep = latestReportOf(best);
+    tipEl.innerHTML = `<strong>${esc(d.name)}</strong>
+      <span>${esc(d.dept)}${d.project && d.role === 'member' ? ` · ${esc(d.project)}` : ''}</span>
+      <span>${esc(statusLabel(d))} — ${esc(d.detail)}</span>
+      ${rep ? `<span>클릭하면 최근 보고서 「${esc(rep.subject)}」</span>` : ''}`;
+    const o = officeEl.getBoundingClientRect();
+    tipEl.style.left = `${e.clientX - o.left + officeEl.scrollLeft + 14}px`;
+    tipEl.style.top = `${e.clientY - o.top + officeEl.scrollTop + 14}px`;
+    tipEl.style.display = 'block';
+  });
+  canvas.addEventListener('mouseleave', () => { tipEl.style.display = 'none'; hovered = null; });
+  canvas.addEventListener('click', () => {
+    const rep = hovered && latestReportOf(hovered);
+    if (rep) { selectedId = rep.id; location.hash = '#inbox'; }
+  });
+
+
+  // ───────── 보고서함 ─────────
+  let reports = [], reportsVersion = -1, lastSeenReportTs = null;
+  let selectedId = null, filter = 'all', query = '';
+  const mailItemsEl = document.getElementById('mail-items');
+  const mailReadEl = document.getElementById('mail-read');
+
+  function latestReportOf(ch) {
+    const d = ch.data;
+    return reports.find((r) => r.from === d.name && r.session === d.sessionId)
+      || reports.find((r) => r.from === d.name && (!d.project || r.project === d.project));
+  }
+
+  function onReportsSummary(sum) {
+    if (!sum) return;
+    const badge = document.getElementById('badge');
+    badge.textContent = sum.unread;
+    badge.hidden = !sum.unread;
+    if (sum.last && lastSeenReportTs !== null && sum.last.ts > lastSeenReportTs && sum.last.kind === 'member') {
+      mailFlash = { sessionId: sum.last.sessionId, until: performance.now() + 4500 };
+    }
+    if (sum.last) lastSeenReportTs = Math.max(lastSeenReportTs || 0, sum.last.ts);
+    else if (lastSeenReportTs === null) lastSeenReportTs = 0;
+    if (sum.version !== reportsVersion) { reportsVersion = sum.version; loadReportList(); }
+  }
+
+  async function loadReportList() {
+    try {
+      const res = await fetch('/api/reports');
+      reports = (await res.json()).reports;
+    } catch { return; }
+    renderMailList();
+    if (selectedId && !reports.some((r) => r.id === selectedId)) { selectedId = null; renderReadingEmpty(); }
+    else if (isInbox() && selectedId && !mailReadEl.dataset.id) openReport(selectedId);
+  }
+
+  function shortTime(ts) {
+    const d = new Date(ts), now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    if (d.toDateString() === now.toDateString()) return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+    return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}`;
+  }
+  function fullTime(ts) {
+    const d = new Date(ts);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function visibleReports() {
+    const q = query.trim().toLowerCase();
+    return reports.filter((r) => {
+      if (filter === 'unread' && r.read) return false;
+      if (filter === 'lead' && r.kind !== 'lead') return false;
+      if (filter === 'member' && r.kind !== 'member') return false;
+      if (!q) return true;
+      return [r.from, r.subject, r.preview, r.dept, r.project].some((v) => String(v || '').toLowerCase().includes(q));
+    });
+  }
+
+  function renderMailList() {
+    const list = visibleReports();
+    if (!list.length) {
+      mailItemsEl.innerHTML = `<li class="mail-none">${reports.length ? '조건에 맞는 보고서가 없습니다.' : '아직 받은 보고서가 없습니다.'}</li>`;
+      return;
+    }
+    mailItemsEl.innerHTML = list.map((r) => `
+      <li><button type="button" class="mail-item${r.read ? '' : ' unread'}${r.id === selectedId ? ' active' : ''}" data-id="${esc(r.id)}">
+        <span class="mi-top">
+          <b>${esc(r.from)}</b>
+          <span class="mi-dept" style="color:${deptColor(r.dept)}">${esc(r.dept)}</span>
+          ${r.attachments && r.attachments.length ? `<span class="mi-clip" title="첨부 ${r.attachments.length}개">📎 ${r.attachments.length}</span>` : ''}
+          <time datetime="${new Date(r.ts).toISOString()}">${shortTime(r.ts)}</time>
+        </span>
+        <span class="mi-subject">${esc(r.subject)}</span>
+        <span class="mi-preview">${esc(r.preview)}</span>
+      </button></li>`).join('');
+  }
+
+  function renderReadingEmpty() {
+    delete mailReadEl.dataset.id;
+    mailReadEl.innerHTML = '<div class="mail-empty">보고서를 고르면 여기에 열립니다.<br>서브에이전트가 업무를 마치거나 팀장이 긴 답변을 끝내면 도착해요.</div>';
+  }
+
+  async function openReport(id) {
+    selectedId = id;
+    renderMailList();
+    let r;
+    try {
+      const res = await fetch(`/api/reports/${encodeURIComponent(id)}`);
+      if (!res.ok) throw new Error();
+      r = await res.json();
+    } catch {
+      mailReadEl.innerHTML = '<div class="mail-empty">보고서를 열지 못했습니다. 파일이 지워졌는지 확인하세요.</div>';
+      return;
+    }
+    mailReadEl.dataset.id = id;
+    const color = deptColor(r.dept);
+    mailReadEl.innerHTML = `
+      <h2 class="mail-subject">${esc(r.subject)}</h2>
+      <div class="mail-meta">
+        <span class="avatar" style="background:${color}" aria-hidden="true">${esc([...r.from][0] || '?')}</span>
+        <div class="who"><b>${esc(r.from)}</b> <span style="color:${color}">${esc(r.dept)}</span>
+          <small>${r.project ? `${esc(r.project)}, ` : ''}${fullTime(r.ts)}</small></div>
+        <div class="mail-actions">
+          <button type="button" id="btn-unread">안 읽음으로</button>
+          <button type="button" class="danger" id="btn-delete">삭제</button>
+        </div>
+      </div>
+      ${attachmentsHtml(r)}
+      <div class="md">${renderMarkdown(r.body, r)}</div>`;
+    mailReadEl.scrollTop = 0;
+    document.getElementById('btn-unread').onclick = () => markRead(id, false);
+    document.getElementById('btn-delete').onclick = () => deleteReport(id);
+    if (!r.read) markRead(id, true);
+  }
+
+  async function markRead(id, read) {
+    const item = reports.find((x) => x.id === id);
+    if (item) item.read = read;
+    renderMailList();
+    await fetch(`/api/reports/${encodeURIComponent(id)}/read`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ read }),
+    }).catch(() => {});
+  }
+
+  async function deleteReport(id) {
+    if (!confirm('이 보고서를 삭제할까요? reports 폴더의 파일도 함께 지워집니다.')) return;
+    const list = visibleReports();
+    const idx = list.findIndex((x) => x.id === id);
+    const next = list[idx + 1] || list[idx - 1];
+    await fetch(`/api/reports/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
+    reports = reports.filter((x) => x.id !== id);
+    if (next) openReport(next.id); else { selectedId = null; renderMailList(); renderReadingEmpty(); }
+  }
+
+
+  function attachmentsHtml(r) {
+    const list = r.attachments || [];
+    if (!list.length) return '';
+    return `<div class="attach"><span>첨부 ${list.length}개</span>${list.map((a) => {
+      const i = a.lastIndexOf('/');
+      const name = a.slice(i + 1), dir = i > 0 ? a.slice(0, i) : '';
+      return `<button type="button" class="file" data-file="${esc(a)}" title="${esc(a)} 다운로드"><b>${esc(name)}</b>${dir ? `<small>${esc(dir)}</small>` : ''}</button>`;
+    }).join('')}</div>`;
+  }
+
+  function toast(msg) {
+    const el = document.createElement('div');
+    el.className = 'toast'; el.setAttribute('role', 'status'); el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3200);
+  }
+
+  // 다운로드는 누르는 순간 서버가 디스크에서 파일을 읽어 내려줍니다 (보고서에는 파일 내용이 저장되지 않음)
+  async function downloadAttachment(rel, el) {
+    const id = mailReadEl.dataset.id;
+    if (!id) return;
+    try {
+      const res = await fetch(`/api/reports/${encodeURIComponent(id)}/file?path=${encodeURIComponent(rel)}`);
+      if (!res.ok) throw new Error(await res.text() || '다운로드하지 못했습니다.');
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = rel.split('/').pop();
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    } catch (e) {
+      if (el && el.classList.contains('file')) el.classList.add('missing');
+      toast(`${rel.split('/').pop()}: ${e.message}`);
+    }
+  }
+  mailReadEl.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-file]');
+    if (!el) return;
+    e.preventDefault();
+    downloadAttachment(el.dataset.file, el);
+  });
+
+  mailItemsEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.mail-item');
+    if (btn) openReport(btn.dataset.id);
+  });
+  mailItemsEl.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const items = [...mailItemsEl.querySelectorAll('.mail-item')];
+    const i = items.indexOf(document.activeElement);
+    const next = items[i + (e.key === 'ArrowDown' ? 1 : -1)];
+    if (next) { e.preventDefault(); next.focus(); openReport(next.dataset.id); }
+  });
+  document.getElementById('mail-search').addEventListener('input', (e) => { query = e.target.value; renderMailList(); });
+  document.querySelectorAll('.filters button').forEach((b) => b.addEventListener('click', () => {
+    filter = b.dataset.filter;
+    document.querySelectorAll('.filters button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    renderMailList();
+  }));
+
+  // 아주 작은 마크다운 렌더러 (제목, 목록, 표, 인용, 굵게, 인라인 코드). HTML 은 모두 이스케이프합니다.
+  let mdCtx = null; // 지금 렌더링 중인 보고서 (첨부 링크 판별용)
+  const normPath = (h) => String(h).replace(/&amp;/g, '&').replace(/\\/g, '/').replace(/#L\d+(-L?\d+)?$/i, '')
+    .replace(/(:\d+){1,2}$/, '').replace(/^\.\//, '');
+  function attachmentFor(href) {
+    if (!mdCtx || !mdCtx.attachments) return null;
+    const h = normPath(href);
+    return mdCtx.attachments.find((a) => a === h || h.endsWith('/' + a) || a.endsWith('/' + h)) || null;
+  }
+  function inlineMd(t) {
+    return esc(t)
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, href) => {
+        const file = attachmentFor(href);
+        if (file) return `<a href="#" class="file-link" data-file="${file.replace(/"/g, '&quot;')}">${label}</a>`;
+        if (/^https?:\/\//i.test(href)) return `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+        return label;
+      })
+      .replace(/`([^`]+)`/g, (m, code) => {
+        const file = attachmentFor(code);
+        return file ? `<a href="#" class="file-link" data-file="${file.replace(/"/g, '&quot;')}"><code>${code}</code></a>` : `<code>${code}</code>`;
+      })
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*\w])\*([^*\s][^*]*?)\*(?!\w)/g, '$1<em>$2</em>');
+  }
+  function renderMarkdown(src, report) {
+    mdCtx = report || null;
+    const lines = String(src || '').replace(/\r/g, '').split('\n');
+    let html = '', para = [], i = 0;
+    const flush = () => { if (para.length) { html += `<p>${inlineMd(para.join(' '))}</p>`; para = []; } };
+    const isRow = (l) => /^\s*\|.*\|\s*$/.test(l);
+    const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+    const listRe = /^\s*([-*+]|\d+[.)])\s+/;
+    while (i < lines.length) {
+      const l = lines[i];
+      let m;
+      if (/^\s*(`{3,}|~{3,})/.test(l)) {
+        flush(); const buf = []; i++;
+        while (i < lines.length && !/^\s*(`{3,}|~{3,})/.test(lines[i])) buf.push(lines[i++]);
+        i++; html += `<pre><code>${esc(buf.join('\n'))}</code></pre>`; continue;
+      }
+      if (!l.trim()) { flush(); i++; continue; }
+      if (/^\[코드 생략/.test(l.trim())) { flush(); html += `<div class="omitted">${esc(l.trim().slice(1, -1))}</div>`; i++; continue; }
+      if ((m = l.match(/^(#{1,6})\s+(.*)$/))) { flush(); const lv = Math.min(5, m[1].length + 2); html += `<h${lv}>${inlineMd(m[2])}</h${lv}>`; i++; continue; }
+      if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(l)) { flush(); html += '<hr>'; i++; continue; }
+      if (isRow(l) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1])) {
+        flush(); const head = cells(l); i += 2; const rows = [];
+        while (i < lines.length && isRow(lines[i])) rows.push(cells(lines[i++]));
+        html += `<div class="tbl"><table><thead><tr>${head.map((c) => `<th>${inlineMd(c)}</th>`).join('')}</tr></thead>` +
+          `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${inlineMd(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+        continue;
+      }
+      if (listRe.test(l)) {
+        flush(); const ordered = /^\s*\d/.test(l); const items = [];
+        while (i < lines.length && listRe.test(lines[i])) items.push(lines[i++].replace(listRe, ''));
+        const tag = ordered ? 'ol' : 'ul';
+        html += `<${tag}>${items.map((t) => `<li>${inlineMd(t)}</li>`).join('')}</${tag}>`; continue;
+      }
+      if (/^>\s?/.test(l)) {
+        flush(); const buf = [];
+        while (i < lines.length && /^>\s?/.test(lines[i])) buf.push(lines[i++].replace(/^>\s?/, ''));
+        html += `<blockquote>${inlineMd(buf.join(' '))}</blockquote>`; continue;
+      }
+      para.push(l.trim()); i++;
+    }
+    flush();
+    return html;
+  }
+
+  // ───────── 화면 전환 ─────────
+  const isInbox = () => location.hash === '#inbox';
+  function route() {
+    const inbox = isInbox();
+    document.getElementById('view-office').hidden = inbox;
+    document.getElementById('view-inbox').hidden = !inbox;
+    document.getElementById('tab-office').toggleAttribute('aria-current', !inbox);
+    document.getElementById('tab-inbox').toggleAttribute('aria-current', inbox);
+    if (!inbox) document.getElementById('tab-office').setAttribute('aria-current', 'page');
+    else document.getElementById('tab-inbox').setAttribute('aria-current', 'page');
+    if (inbox) {
+      renderMailList();
+      if (selectedId) openReport(selectedId); else renderReadingEmpty();
+    } else {
+      resize();
+    }
+  }
+  window.addEventListener('hashchange', route);
+
+  // ───────── 연결 ─────────
+  const connEl = document.getElementById('conn');
+  function connect() {
+    const es = new EventSource('/stream');
+    es.onopen = () => { connEl.textContent = '연결됨'; connEl.classList.add('on'); };
+    es.onmessage = (e) => { try { applySnapshot(JSON.parse(e.data)); } catch (err) { console.error(err); } };
+    es.onerror = () => { connEl.textContent = '서버 연결 끊김 · 재시도 중'; connEl.classList.remove('on'); };
+  }
+
+  // ───────── 루프 ─────────
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (layout) {
+      for (const ch of [...chars.values()]) {
+        step(ch, dt);
+        if (ch.leaving && !walking(ch)) chars.delete(ch.id);
+      }
+      draw(now);
+    }
+    requestAnimationFrame(loop);
+  }
+
+  layout = buildLayout(snap.config);
+  layoutKey = JSON.stringify(zoneNames(snap.config)) + '[]';
+  resize();
+  renderPanels();
+  route();
+  connect();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

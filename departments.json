@@ -1,0 +1,47 @@
+{
+  "leadRoom": "팀장실",
+  "defaultDept": "TF팀",
+  "departments": [
+    {
+      "name": "기획팀",
+      "color": "#e3a33b",
+      "agents": [
+        "planner",
+        "architect",
+        "Plan"
+      ]
+    },
+    {
+      "name": "개발팀",
+      "color": "#4a86d9",
+      "agents": [
+        "backend-dev",
+        "frontend-dev",
+        "general-purpose"
+      ]
+    },
+    {
+      "name": "품질팀",
+      "color": "#4fae6a",
+      "agents": [
+        "reviewer",
+        "code-reviewer",
+        "qa",
+        "tester"
+      ]
+    },
+    {
+      "name": "리서치팀",
+      "color": "#9a6fd6",
+      "agents": [
+        "Explore",
+        "researcher"
+      ]
+    }
+  ],
+  "reports": {
+    "enabled": true,
+    "stripCode": true,
+    "leadMinLength": 200
+  }
+}
