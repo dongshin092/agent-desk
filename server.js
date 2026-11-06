@@ -9,10 +9,13 @@ const path = require('path');
 
 const PORT = Number(process.env.AGENT_OFFICE_PORT || 4000);
 const HOST = '127.0.0.1'; // 이벤트에 파일 경로·명령어가 담기므로 내 PC에서만 접속 가능하게
-const CONFIG_PATH = path.join(__dirname, 'departments.json');
+const PATHS = require('./lib/paths');
+const CONFIG_PATH = PATHS.CONFIG;
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const REPORTS_DIR = path.join(__dirname, 'reports');
+const REPORTS_DIR = PATHS.REPORTS;
 const { stripCode, findAttachments } = require('./lib/report-text');
+const { UsageTracker } = require('./lib/usage');
+const usage = new UsageTracker(PATHS.USAGE, { onText: (...a) => onAgentText(...a) });
 
 // ───────────────────────── 부서 설정 ─────────────────────────
 let config = loadConfig();
@@ -31,6 +34,7 @@ function loadConfig() {
     enabled: r.enabled !== false,
     stripCode: r.stripCode !== false,
     leadMinLength: Number.isFinite(Number(r.leadMinLength)) ? Number(r.leadMinLength) : 200,
+    onlyWithAttachments: r.onlyWithAttachments !== false,
   });
   const fallback = { leadRoom: '팀장실', defaultDept: 'TF팀', departments: [], reports: reports() };
   try {
@@ -94,7 +98,8 @@ function ensureSession(sid, cwd) {
       id: leadId(sid), sessionId: sid, role: 'lead', type: 'lead',
       name: s.project, project: s.project, dept: config.leadRoom,
       status: 'idle', activity: 'idle', detail: '출근 완료',
-      since: Date.now(), lastActivity: Date.now(),
+      since: Date.now(), lastActivity: Date.now(), activitySince: Date.now(),
+      task: '', toolCount: 0, recent: [], say: null,
     });
   } else if (cwd && !s.cwd) {
     s.cwd = cwd;
@@ -112,7 +117,8 @@ function createMember(sid, type, extra = {}) {
     id, sessionId: sid, role: 'member', type: type || 'general-purpose',
     name: type || 'general-purpose', project: session ? session.project : '',
     dept: deptFor(type), status: 'working', activity: 'think', detail: '업무 파악 중',
-    since: Date.now(), lastActivity: Date.now(), ...extra,
+    since: Date.now(), lastActivity: Date.now(), activitySince: Date.now(),
+    task: '', toolCount: 0, recent: [], say: null, ...extra,
   };
   agents.set(id, agent);
   return agent;
@@ -120,7 +126,52 @@ function createMember(sid, type, extra = {}) {
 
 function update(agent, patch) {
   if (!agent) return;
+  if (patch.detail !== undefined && patch.detail !== agent.detail) agent.activitySince = Date.now();
   Object.assign(agent, patch, { lastActivity: Date.now() });
+}
+
+// ───────── 말풍선 ─────────
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+function say(agent, text, kind = 'event', delay = 0) {
+  if (!agent || !text) return;
+  agent.say = { text: clip(text, 60), ts: Date.now() + delay, kind };
+}
+function pushRecent(agent, text) {
+  if (!agent) return;
+  agent.recent.push({ ts: Date.now(), text });
+  if (agent.recent.length > 8) agent.recent.shift();
+}
+// 에이전트가 쓴 글에서 첫 문장만 깔끔하게
+function firstSentence(text) {
+  const t = String(text)
+    .replace(/```[\s\S]*?(```|$)/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/[#>*_`|]/g, ' ')
+    .replace(/(^|\s)[-•]\s/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!/[가-힣A-Za-z]/.test(t)) return '';
+  const sentences = t.match(/.+?(?:[.!?。](?=\s|$)|$)/g) || [t];
+  let out = sentences[0].trim();
+  if (out.length < 10 && sentences[1]) out = `${out} ${sentences[1].trim()}`; // "좋습니다!" 처럼 짧으면 한 문장 더
+  return clip(out, 56);
+}
+// 트랜스크립트에서 방금 읽은 문장 → 해당 캐릭터 말풍선
+function onAgentText(sid, file, text, sidechain) {
+  if (sidechain) return;
+  const sentence = firstSentence(text);
+  if (!sentence) return;
+  let agent = null;
+  const m = String(file).match(/agent-([^\\/]+)\.jsonl$/);
+  if (m) {
+    const id = bySubagentId.get(m[1]);
+    agent = id && agents.get(id);
+  } else {
+    agent = agents.get(leadId(sid));
+  }
+  if (!agent || agent.status === 'done') return;
+  say(agent, sentence, 'narration');
+  scheduleBroadcast();
 }
 
 function addLog(agent, text) {
@@ -153,8 +204,11 @@ function describeTool(name = '', input = {}) {
   if (name === 'Write') return mk('write', '파일 작성', file);
   if (/^(Edit|MultiEdit|NotebookEdit)$/.test(name)) return mk('write', '코드 수정', file);
   if (/^(Bash|PowerShell|BashOutput|KillShell|KillBash)$/.test(name))
-    return mk('run', '명령 실행', clip(input.description || input.command, 36));
-  if (/^(Grep|Glob|LS)$/.test(name)) return mk('search', '코드 검색', clip(input.pattern || input.path, 28));
+    return mk('run', '명령 실행', clip(input.description || input.command, 40));
+  if (/^(Grep|Glob|LS)$/.test(name)) {
+    const where = input.path ? ` (${baseName(input.path)})` : '';
+    return mk('search', '코드 검색', clip((input.pattern || input.path || '') + where, 36));
+  }
   if (/^(WebFetch|WebSearch)$/.test(name)) return mk('web', '자료 조사', clip(input.query || hostOf(input.url), 28));
   if (isAgentTool(name, input)) return mk('delegate', '업무 지시', input.subagent_type || '');
   if (/^(TodoWrite|TaskCreate|TaskUpdate|TaskList|ExitPlanMode)$/.test(name)) return mk('plan', '할 일 정리');
@@ -182,6 +236,8 @@ function finishMember(agent, text = '업무 완료') {
   if (!agent || agent.status === 'done') return;
   update(agent, { status: 'done', activity: 'idle', detail: text, endedAt: Date.now() });
   addLog(agent, `${text} — 보고 후 퇴근`);
+  say(agent, pick(['보고 드립니다!', '다 했습니다!', '완료했어요, 확인 부탁드려요!', '마무리했습니다 🙌']));
+  say(agents.get(leadId(agent.sessionId)), pick(['수고했어요 👍', '고마워요!', '좋아요, 확인할게요', '굿굿 👏']), 'event', 1300);
 }
 
 
@@ -261,6 +317,7 @@ function saveReport({ agent, subject, kind, body }) {
   const session = sessions.get(agent.sessionId);
   const cwd = session ? session.cwd : '';
   const attachments = findAttachments(text, cwd, { touched: touchedFiles.get(agent.sessionId) || [] });
+  if (config.reports.onlyWithAttachments && !attachments.length) return; // 첨부 없는 보고는 저장하지 않음
   const meta = {
     from: oneLine(agent.name), dept: oneLine(agent.dept), project: oneLine(agent.project),
     subject: oneLine(subject) || '업무 보고', kind, session: oneLine(agent.sessionId), date: d.toISOString(),
@@ -298,15 +355,20 @@ function handleEvent(ev) {
   const session = ensureSession(sid, ev.cwd);
   session.lastActivity = Date.now();
   const lead = agents.get(leadId(sid));
+  if (ev.transcript_path) usage.addFile(sid, ev.transcript_path);
+  if (ev.agent_transcript_path) usage.addFile(sid, ev.agent_transcript_path);
+  usage.refresh(sid);
 
   switch (name) {
     case 'SessionStart':
       update(lead, { status: 'idle', activity: 'idle', detail: '출근 완료' });
       addLog(lead, '출근했습니다');
+      say(lead, pick(['출근했습니다!', '좋은 아침입니다 ☀️', '오늘도 힘내봅시다']));
       break;
 
     case 'UserPromptSubmit':
-      update(lead, { status: 'working', activity: 'think', detail: '지시 검토 중', lastPrompt: clip(ev.prompt, 60) });
+      update(lead, { status: 'working', activity: 'think', detail: '지시 검토 중', lastPrompt: clip(ev.prompt, 60), task: clip(ev.prompt, 80), toolCount: 0 });
+      say(lead, pick(['알겠습니다, 바로 볼게요!', '접수했습니다!', '오케이, 시작해볼까요', '네, 맡겨주세요']));
       addLog(lead, ev.prompt ? `새 지시 접수: ${clip(ev.prompt, 40)}` : '새 지시 접수');
       break;
 
@@ -315,15 +377,24 @@ function handleEvent(ev) {
       if (!ev.agent_id && isAgentTool(ev.tool_name, input)) {
         // 서브에이전트 출근 (SubagentStart 이벤트가 없는 버전도 대비)
         const member = createMember(sid, input.subagent_type, {
-          pending: true, detail: clip(input.description, 30) || '업무 파악 중',
+          pending: true, detail: clip(input.description, 30) || '업무 파악 중', task: clip(input.description, 80),
         });
         if (ev.tool_use_id) byToolUseId.set(ev.tool_use_id, member.id);
         addLog(member, `출근했습니다${input.description ? ` (${clip(input.description, 30)})` : ''}`);
+        say(lead, `@${member.name} ${input.description ? clip(input.description, 22) + ' ' : ''}부탁해요!`);
+        say(member, pick(['네, 맡겨주세요!', '바로 시작할게요!', '확인했습니다!', '넵! 🫡']), 'event', 1400);
       }
       if (/^(Write|Edit|MultiEdit|NotebookEdit|Read)$/.test(ev.tool_name || '')) rememberFile(sid, session.cwd, input);
       const actor = actorFor(ev, sid);
       const info = describeTool(ev.tool_name, input);
+      if (ev.todo && ev.todo.total) {
+        info.target = `${ev.todo.done}/${ev.todo.total} 완료${ev.todo.current ? `, 지금: ${clip(ev.todo.current, 30)}` : ''}`;
+        info.detail = `할 일 정리 · ${info.target}`;
+        if (ev.todo.current) say(actor, `다음은 ${clip(ev.todo.current, 28)}!`);
+      }
+      if (actor) actor.toolCount = (actor.toolCount || 0) + 1;
       update(actor, { status: 'working', activity: info.activity, detail: info.detail });
+      pushRecent(actor, info.detail);
       addLog(actor, info.target ? `${info.label} · ${info.target}` : info.label);
       break;
     }
@@ -381,6 +452,7 @@ function handleEvent(ev) {
       update(lead, needsApproval
         ? { status: 'alert', activity: 'idle', detail: '결재 필요' }
         : { status: 'waiting', activity: 'idle', detail: '지시 대기' });
+      say(lead, needsApproval ? pick(['결재 부탁드립니다! 🙏', '이거 실행해도 될까요?', '승인이 필요해요!']) : pick(['다음 지시 기다릴게요', '언제든 불러주세요']));
       addLog(lead, needsApproval ? `결재 요청: ${clip(msg, 50)}` : '다음 지시를 기다리는 중');
       break;
     }
@@ -388,6 +460,7 @@ function handleEvent(ev) {
     case 'Stop':
       update(lead, { status: 'waiting', activity: 'idle', detail: '보고 완료' });
       addLog(lead, '작업을 마치고 보고했습니다');
+      say(lead, pick(['보고 드립니다!', '작업 끝났습니다 ✅', '확인 부탁드려요!']));
       if (ev.report_text && ev.report_text.length >= config.reports.leadMinLength) {
         saveReport({
           agent: lead, kind: 'lead', body: ev.report_text,
@@ -401,6 +474,7 @@ function handleEvent(ev) {
         if (a.sessionId === sid) update(a, { status: 'done', activity: 'idle', detail: '퇴근', endedAt: Date.now() });
       }
       addLog(lead, '퇴근했습니다');
+      say(lead, pick(['퇴근합니다~ 👋', '오늘도 수고하셨습니다!']));
       break;
 
     default:
@@ -418,7 +492,7 @@ setInterval(() => {
       agents.delete(id);
       for (const [k, v] of bySubagentId) if (v === id) bySubagentId.delete(k);
       for (const [k, v] of byToolUseId) if (v === id) byToolUseId.delete(k);
-      if (a.role === 'lead') { sessions.delete(a.sessionId); touchedFiles.delete(a.sessionId); }
+      if (a.role === 'lead') { sessions.delete(a.sessionId); touchedFiles.delete(a.sessionId); usage.remove(a.sessionId); }
       changed = true;
     } else if (a.status === 'working' && a.activity === 'think' && now - a.lastActivity > 90_000) {
       update(a, { status: 'idle', activity: 'idle', detail: '잠시 휴식' });
@@ -432,12 +506,20 @@ setInterval(() => {
     if (now - s.lastActivity > 30 * 60_000) {
       sessions.delete(sid);
       touchedFiles.delete(sid);
+      usage.remove(sid);
       for (const [id, a] of agents) if (a.sessionId === sid) agents.delete(id);
       changed = true;
     }
   }
   if (changed) scheduleBroadcast();
 }, 1000);
+
+// 토큰 집계는 이벤트가 없을 때도 3초마다 새 기록을 읽어 반영
+setInterval(() => {
+  let changed = false;
+  for (const sid of sessions.keys()) changed = usage.refresh(sid, true) || changed;
+  if (changed) scheduleBroadcast();
+}, 3000);
 
 // ───────────────────────── 브라우저 전송 (SSE) ─────────────────────────
 const clients = new Set();
@@ -454,6 +536,11 @@ function snapshot() {
     sessions: [...sessions.values()],
     log: log.slice(-80),
     reports: reportsSummary(),
+    usage: {
+      rateLimits: usage.rateLimits,
+      today: usage.todayTotals(),
+      sessions: [...sessions.values()].map((x) => ({ id: x.id, project: x.project, ...usage.sessionView(x.id) })),
+    },
   };
 }
 
@@ -483,6 +570,36 @@ const server = http.createServer((req, res) => {
     req.on('data', (c) => { body += c; if (body.length > 1_000_000) req.destroy(); });
     req.on('end', () => {
       try { handleEvent(JSON.parse(body)); } catch (e) { console.error('[이벤트] 처리 실패:', e.message); }
+      res.writeHead(204).end();
+    });
+    return;
+  }
+
+  // 설치·제거 프로그램이 서버를 끌 때 사용. 다른 웹사이트가 보낼 수 없는 헤더를 요구합니다.
+  if (req.method === 'POST' && url.pathname === '/shutdown') {
+    if (req.headers['x-agent-office'] !== 'shutdown') { res.writeHead(403).end(); return; }
+    res.writeHead(204).end();
+    console.log('\n  종료 요청을 받아 Agent Office 를 닫습니다.');
+    setTimeout(() => process.exit(0), 150);
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/statusline') {
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 200_000) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const d = JSON.parse(body);
+        const sid = d.session_id;
+        if (sid) {
+          ensureSession(sid, (d.workspace && d.workspace.current_dir) || d.cwd);
+          usage.applyStatusline(sid, d);
+          usage.refresh(sid);
+        } else {
+          usage.applyStatusline('_', d);
+        }
+        scheduleBroadcast();
+      } catch { /* 무시 */ }
       res.writeHead(204).end();
     });
     return;
@@ -609,7 +726,23 @@ const server = http.createServer((req, res) => {
   res.writeHead(405).end();
 });
 
+process.title = 'Agent Office';
+const OPEN = process.argv.includes('--open');
+function openBrowser() {
+  const url = `http://localhost:${PORT}`;
+  const { exec } = require('child_process');
+  const cmd = process.platform === 'win32' ? `start "" "${url}"` : process.platform === 'darwin' ? `open "${url}"` : `xdg-open "${url}"`;
+  exec(cmd, () => {});
+}
+
 server.on('error', (e) => {
+  if (e.code === 'EADDRINUSE' && OPEN) {
+    // 이미 켜져 있으면 브라우저만 열고 끝냄 (바로가기를 두 번 눌러도 괜찮도록)
+    console.log('  Agent Office 가 이미 실행 중입니다. 브라우저로 엽니다.');
+    openBrowser();
+    setTimeout(() => process.exit(0), 500);
+    return;
+  }
   if (e.code === 'EADDRINUSE') {
     console.error(`\n포트 ${PORT} 이(가) 이미 사용 중입니다.`);
     console.error('이미 Agent Office 가 켜져 있는지 확인하거나, 다른 포트로 실행하세요:');
@@ -625,7 +758,9 @@ server.listen(PORT, HOST, () => {
   console.log('  Agent Office 가 문을 열었습니다.');
   console.log(`  사무실 보기:  http://localhost:${PORT}`);
   console.log(`  보고서함:     http://localhost:${PORT}/#inbox  (파일: reports 폴더)`);
-  console.log('  미리보기:     다른 터미널에서  npm run simulate');
-  console.log('  종료:         Ctrl + C');
+  console.log(PATHS.INSTALLED ? '  미리보기:     시작 메뉴 > Agent Office > 시뮬레이션 미리보기' : '  미리보기:     다른 터미널에서  npm run simulate');
+  console.log(`  데이터 폴더:  ${PATHS.DATA}`);
+  console.log('  종료:         이 창을 닫거나 Ctrl + C');
   console.log('');
+  if (OPEN) openBrowser();
 });

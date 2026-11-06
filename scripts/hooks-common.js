@@ -9,8 +9,17 @@ const TOOL_EVENTS = new Set(['PreToolUse', 'PostToolUse']);
 const MARKER = 'agent-office-hook.js';
 
 // 경로는 슬래시로 통일 (Git Bash / cmd / PowerShell 어디서 실행돼도 동작하도록)
+const PATHS = require('../lib/paths');
+// 설치 버전은 함께 설치된 node.exe 를 전체 경로로 지정 (PC 에 Node 가 없어도 동작)
+const nodeCmd = PATHS.INSTALLED ? `"${process.execPath.replace(/\\/g, '/')}"` : 'node';
 const hookPath = path.resolve(__dirname, '..', 'hooks', MARKER).replace(/\\/g, '/');
-const command = `node "${hookPath}"`;
+const command = `${nodeCmd} "${hookPath}"`;
+
+const SL_MARKER = 'agent-office-statusline.js';
+const statuslinePath = path.resolve(__dirname, '..', 'hooks', SL_MARKER).replace(/\\/g, '/');
+const statuslineCommand = `${nodeCmd} "${statuslinePath}"`;
+const prevStatuslineFile = PATHS.PREV_STATUSLINE;
+const isOurStatusline = (sl) => sl && typeof sl.command === 'string' && sl.command.includes(SL_MARKER);
 
 const settingsDir = path.join(os.homedir(), '.claude');
 const settingsPath = path.join(settingsDir, 'settings.json');
@@ -58,4 +67,5 @@ function writeSettings(settings) {
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8');
 }
 
-module.exports = { EVENTS, TOOL_EVENTS, command, settingsPath, readSettings, backup, stripOurs, writeSettings };
+module.exports = { PATHS, MARKER, SL_MARKER, EVENTS, TOOL_EVENTS, command, settingsPath, readSettings, backup, stripOurs, writeSettings,
+  statuslineCommand, prevStatuslineFile, isOurStatusline };

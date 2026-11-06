@@ -1,8 +1,13 @@
-node_modules/
+# 실행 중 생기는 데이터
 reports/
-*.log
-.DS_Store
-Thumbs.db
+usage-state.json
+statusline-previous.json
+
+# 설치 프로그램 빌드 산출물
+build/stage/
+build/*.exe
+
+node_modules/
 
 # MCP 설정 (GitHub 토큰 포함 — 커밋 금지)
 .mcp.json

@@ -24,7 +24,7 @@ process.stdin.on('error', () => process.exit(0));
 
 function reportSettings() {
   try {
-    const text = fs.readFileSync(path.join(__dirname, '..', 'departments.json'), 'utf8').replace(/^\uFEFF/, '');
+    const text = fs.readFileSync(require('../lib/paths').CONFIG, 'utf8').replace(/^\uFEFF/, '');
     const r = JSON.parse(text).reports || {};
     return { enabled: r.enabled !== false, stripCode: r.stripCode !== false };
   } catch {
@@ -61,6 +61,13 @@ async function send() {
       }
     }
 
+    // 할 일 목록(TodoWrite)은 진행 상황만 요약해서 전달
+    if (ev.tool_name === 'TodoWrite' && ev.tool_input && Array.isArray(ev.tool_input.todos)) {
+      const todos = ev.tool_input.todos;
+      const cur = todos.find((t) => t && t.status === 'in_progress');
+      const pick = (t) => String((t && (t.activeForm || t.content)) || '').slice(0, 80);
+      ev.todo = { total: todos.length, done: todos.filter((t) => t && t.status === 'completed').length, current: pick(cur) };
+    }
     delete ev.tool_response;
     delete ev.last_assistant_message;
     if (ev.tool_input && typeof ev.tool_input === 'object') {

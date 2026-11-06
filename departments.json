@@ -41,6 +41,7 @@
   ],
   "reports": {
     "enabled": true,
+    "onlyWithAttachments": true,
     "stripCode": true,
     "leadMinLength": 200
   }
